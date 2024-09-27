@@ -28,7 +28,7 @@ namespace DeltaLake.Demo
                 .Field(static fb =>
                 {
                     fb.Name(_testColumnName);
-                    fb.DataType(Int32Type.Default);
+                    fb.DataType(StringType.Default);
                     fb.Nullable(false);
                 })
                 .Build();
@@ -41,7 +41,8 @@ namespace DeltaLake.Demo
                 )
                 .ConfigureAwait(false);
 
-            await InsertIntoTableAsync(table, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
+            await InsertIntoTableAsync(table, testSchema, _numRows, CancellationToken.None)
+                .ConfigureAwait(false);
 
             runtime.Dispose();
         }
@@ -53,14 +54,17 @@ namespace DeltaLake.Demo
             string path,
             Schema schema,
             CancellationToken cancellationToken
-        ) => await DeltaTable.CreateAsync(
-                runtime,
-                new TableCreateOptions(path, schema)
-                {
-                    Configuration = new Dictionary<string, string?>(),
-                },
-                cancellationToken
-            ).ConfigureAwait(false);
+        ) =>
+            await DeltaTable
+                .CreateAsync(
+                    runtime,
+                    new TableCreateOptions(path, schema)
+                    {
+                        Configuration = new Dictionary<string, string?>(),
+                    },
+                    cancellationToken
+                )
+                .ConfigureAwait(false);
 
         public static async Task InsertIntoTableAsync(
             DeltaTable table,
@@ -69,19 +73,35 @@ namespace DeltaLake.Demo
             CancellationToken cancellationToken
         )
         {
+            var random = new Random();
             var allocator = new NativeMemoryAllocator();
             var recordBatchBuilder = new RecordBatch.Builder(allocator).Append(
                 _testColumnName,
                 false,
-                col => col.Int32(arr => arr.AppendRange(Enumerable.Range(0, numRows)))
+                col =>
+                    col.String(arr =>
+                        arr.AppendRange(
+                            Enumerable.Range(0, numRows).Select(_ => GenerateRandomString(random))
+                        )
+                    )
             );
             var options = new InsertOptions { SaveMode = SaveMode.Append };
-            await table.InsertAsync(
-                [recordBatchBuilder.Build()],
-                schema,
-                options,
-                cancellationToken
-            ).ConfigureAwait(false);
+            await table
+                .InsertAsync(
+                    new[] { recordBatchBuilder.Build() },
+                    schema,
+                    options,
+                    cancellationToken
+                )
+                .ConfigureAwait(false);
+        }
+
+        private static string GenerateRandomString(Random random, int length = 10)
+        {
+            const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            return new string(
+                Enumerable.Repeat(chars, length).Select(s => s[random.Next(s.Length)]).ToArray()
+            );
         }
     }
 }
