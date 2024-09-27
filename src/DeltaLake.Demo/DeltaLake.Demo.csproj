@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
+
+	<!-- Internal Projects -->
+	<ItemGroup>
+		<ProjectReference Include="..\DeltaLake\DeltaLake.csproj" />
+	</ItemGroup>
+
+	<!-- Copy Bridge .dll and .so file to build location -->
+	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
+		<Exec Command="copy /Y $(ProjectDir)..\DeltaLake\bin\Debug\net8.0\delta_rs_bridge.dll $(OutDir)" Condition=" '$(OS)' == 'Windows_NT' " />
+	</Target>
+
+</Project>
