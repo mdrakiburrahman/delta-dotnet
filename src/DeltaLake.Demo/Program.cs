@@ -8,21 +8,14 @@ namespace DeltaLake.Demo
 {
     public class Program
     {
-        private static readonly string _tempDir = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            ".temp"
-        );
-
+        private static readonly string _tempDir = Path.Combine(Directory.GetCurrentDirectory(), ".temp");
         private static readonly string _deltaTableTest = "myDeltaTable";
         private static readonly string _testColumnName = "colTest";
-        private static readonly int _numRows = 1000000;
+        private static readonly int _numRows = 10;
 
         public static async Task Main(string[] args)
         {
-            if (Directory.Exists(_tempDir))
-            {
-                Directory.Delete(_tempDir, true);
-            }
+            if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true);
             _ = Directory.CreateDirectory(_tempDir);
             var testSchema = new Apache.Arrow.Schema.Builder()
                 .Field(static fb =>
@@ -32,7 +25,7 @@ namespace DeltaLake.Demo
                     fb.Nullable(false);
                 })
                 .Build();
-            var runtime = CreateRuntimeAsync();
+            var runtime = CreateRuntime();
             var table = await CreateDeltaTableAsync(
                     runtime,
                     Path.Combine(_tempDir, _deltaTableTest),
@@ -41,21 +34,21 @@ namespace DeltaLake.Demo
                 )
                 .ConfigureAwait(false);
 
-            await InsertIntoTableAsync(table, testSchema, _numRows, CancellationToken.None)
-                .ConfigureAwait(false);
+            // INSERT
+            //
+            await InsertIntoTableAsync(table, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
 
             runtime.Dispose();
         }
 
-        public static DeltaRuntime CreateRuntimeAsync() => new DeltaRuntime(RuntimeOptions.Default);
+        private static DeltaRuntime CreateRuntime() => new(RuntimeOptions.Default);
 
-        public static async Task<DeltaTable> CreateDeltaTableAsync(
+        private static async Task<DeltaTable> CreateDeltaTableAsync(
             DeltaRuntime runtime,
             string path,
             Schema schema,
             CancellationToken cancellationToken
-        ) =>
-            await DeltaTable
+        ) => await DeltaTable
                 .CreateAsync(
                     runtime,
                     new TableCreateOptions(path, schema)
@@ -66,7 +59,7 @@ namespace DeltaLake.Demo
                 )
                 .ConfigureAwait(false);
 
-        public static async Task InsertIntoTableAsync(
+        private static async Task InsertIntoTableAsync(
             DeltaTable table,
             Schema schema,
             int numRows,
