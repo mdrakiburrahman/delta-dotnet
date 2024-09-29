@@ -12,6 +12,11 @@
 		<ProjectReference Include="..\DeltaLake\DeltaLake.csproj" />
 	</ItemGroup>
 
+	<!-- External Nuget Packages -->
+	<ItemGroup>
+		<PackageReference Include="Azure.Identity" Version="1.12.0-beta.1" />
+	</ItemGroup>
+
 	<!-- Copy Bridge .dll and .so file to build location -->
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
 		<Exec Command="copy /Y $(ProjectDir)..\DeltaLake\bin\Debug\net8.0\delta_rs_bridge.dll $(OutDir)" Condition=" '$(OS)' == 'Windows_NT' " />

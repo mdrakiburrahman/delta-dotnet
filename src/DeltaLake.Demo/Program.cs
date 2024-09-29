@@ -1,6 +1,8 @@
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
+using Azure.Core;
+using Azure.Identity;
 using DeltaLake.Runtime;
 using DeltaLake.Table;
 
@@ -8,15 +10,23 @@ namespace DeltaLake.Demo
 {
     public class Program
     {
-        private static readonly string _tempDir = Path.Combine(Directory.GetCurrentDirectory(), ".temp");
+        private static readonly string _tempDir = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            ".temp"
+        );
+        private static readonly string _azureDir = "abfss://onelake@monitoringtestadls.dfs.core.windows.net/synapse/workspaces/monitoring-test-synapse/temp/myDeltaTable";
         private static readonly string _deltaTableTest = "myDeltaTable";
         private static readonly string _testColumnName = "colTest";
         private static readonly int _numRows = 10;
 
         public static async Task Main(string[] args)
         {
-            if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true);
+            if (Directory.Exists(_tempDir))
+                Directory.Delete(_tempDir, true);
             _ = Directory.CreateDirectory(_tempDir);
+
+            var adlsOauthToken = new VisualStudioCredential().GetToken(new TokenRequestContext(new[] { "https://storage.azure.com/.default" }), default).Token;
+
             var testSchema = new Apache.Arrow.Schema.Builder()
                 .Field(static fb =>
                 {
@@ -25,18 +35,15 @@ namespace DeltaLake.Demo
                     fb.Nullable(false);
                 })
                 .Build();
+
             var runtime = CreateRuntime();
-            var table = await CreateDeltaTableAsync(
-                    runtime,
-                    Path.Combine(_tempDir, _deltaTableTest),
-                    testSchema,
-                    CancellationToken.None
-                )
-                .ConfigureAwait(false);
+            var localTable = await CreateDeltaTableAsync(runtime, Path.Combine(_tempDir, _deltaTableTest), testSchema, CancellationToken.None).ConfigureAwait(false);
+            var azureTable = await CreateDeltaTableAdlsAsync(runtime, _azureDir, adlsOauthToken, testSchema, CancellationToken.None).ConfigureAwait(false);
 
             // INSERT
             //
-            await InsertIntoTableAsync(table, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
+            await InsertIntoTableAsync(localTable, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
+            await InsertIntoTableAsync(azureTable, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
 
             runtime.Dispose();
         }
@@ -48,12 +55,32 @@ namespace DeltaLake.Demo
             string path,
             Schema schema,
             CancellationToken cancellationToken
-        ) => await DeltaTable
+        ) =>
+            await DeltaTable
                 .CreateAsync(
                     runtime,
                     new TableCreateOptions(path, schema)
                     {
                         Configuration = new Dictionary<string, string?>(),
+                    },
+                    cancellationToken
+                )
+                .ConfigureAwait(false);
+
+        private static async Task<DeltaTable> CreateDeltaTableAdlsAsync(
+            DeltaRuntime runtime,
+            string path,
+            string bearerToken,
+            Schema schema,
+            CancellationToken cancellationToken
+        ) =>
+            await DeltaTable
+                .CreateAsync(
+                    runtime,
+                    new TableCreateOptions(path, schema)
+                    {
+                        Configuration = new Dictionary<string, string?>(),
+                        StorageOptions = new Dictionary<string, string?> { { "bearer_token", bearerToken } },
                     },
                     cancellationToken
                 )
