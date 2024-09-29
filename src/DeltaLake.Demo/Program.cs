@@ -14,9 +14,11 @@ namespace DeltaLake.Demo
             Directory.GetCurrentDirectory(),
             ".temp"
         );
-        private static readonly string _azureDir = "abfss://onelake@monitoringtestadls.dfs.core.windows.net/synapse/workspaces/monitoring-test-synapse/temp/myDeltaTable";
+        private static readonly string _azureDir =
+            "abfss://onelake@monitoringtestadls.dfs.core.windows.net/synapse/workspaces/monitoring-test-synapse/temp/myDeltaTable";
         private static readonly string _deltaTableTest = "myDeltaTable";
-        private static readonly string _testColumnName = "colTest";
+        private static readonly string _testStringColumnName = "colStringTest";
+        private static readonly string _testIntegerColumnName = "colIntegerTest";
         private static readonly int _numRows = 10;
 
         public static async Task Main(string[] args)
@@ -25,25 +27,51 @@ namespace DeltaLake.Demo
                 Directory.Delete(_tempDir, true);
             _ = Directory.CreateDirectory(_tempDir);
 
-            var adlsOauthToken = new VisualStudioCredential().GetToken(new TokenRequestContext(new[] { "https://storage.azure.com/.default" }), default).Token;
+            var adlsOauthToken = new VisualStudioCredential()
+                .GetToken(
+                    new TokenRequestContext(new[] { "https://storage.azure.com/.default" }),
+                    default
+                )
+                .Token;
 
             var testSchema = new Apache.Arrow.Schema.Builder()
                 .Field(static fb =>
                 {
-                    fb.Name(_testColumnName);
+                    fb.Name(_testStringColumnName);
                     fb.DataType(StringType.Default);
+                    fb.Nullable(false);
+                })
+                .Field(static fb =>
+                {
+                    fb.Name(_testIntegerColumnName);
+                    fb.DataType(Int32Type.Default);
                     fb.Nullable(false);
                 })
                 .Build();
 
             var runtime = CreateRuntime();
-            var localTable = await CreateDeltaTableAsync(runtime, Path.Combine(_tempDir, _deltaTableTest), testSchema, CancellationToken.None).ConfigureAwait(false);
-            var azureTable = await CreateDeltaTableAdlsAsync(runtime, _azureDir, adlsOauthToken, testSchema, CancellationToken.None).ConfigureAwait(false);
+            var localTable = await CreateDeltaTableAsync(
+                    runtime,
+                    Path.Combine(_tempDir, _deltaTableTest),
+                    testSchema,
+                    CancellationToken.None
+                )
+                .ConfigureAwait(false);
+            var azureTable = await CreateDeltaTableAdlsAsync(
+                    runtime,
+                    _azureDir,
+                    adlsOauthToken,
+                    testSchema,
+                    CancellationToken.None
+                )
+                .ConfigureAwait(false);
 
             // INSERT
             //
-            await InsertIntoTableAsync(localTable, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
-            await InsertIntoTableAsync(azureTable, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
+            await InsertIntoTableAsync(localTable, testSchema, _numRows, CancellationToken.None)
+                .ConfigureAwait(false);
+            await InsertIntoTableAsync(azureTable, testSchema, _numRows, CancellationToken.None)
+                .ConfigureAwait(false);
 
             runtime.Dispose();
         }
@@ -80,7 +108,10 @@ namespace DeltaLake.Demo
                     new TableCreateOptions(path, schema)
                     {
                         Configuration = new Dictionary<string, string?>(),
-                        StorageOptions = new Dictionary<string, string?> { { "bearer_token", bearerToken } },
+                        StorageOptions = new Dictionary<string, string?>
+                        {
+                            { "bearer_token", bearerToken },
+                        },
                     },
                     cancellationToken
                 )
@@ -95,16 +126,27 @@ namespace DeltaLake.Demo
         {
             var random = new Random();
             var allocator = new NativeMemoryAllocator();
-            var recordBatchBuilder = new RecordBatch.Builder(allocator).Append(
-                _testColumnName,
-                false,
-                col =>
-                    col.String(arr =>
-                        arr.AppendRange(
-                            Enumerable.Range(0, numRows).Select(_ => GenerateRandomString(random))
+            var recordBatchBuilder = new RecordBatch.Builder(allocator)
+                .Append(
+                    _testStringColumnName,
+                    false,
+                    col =>
+                        col.String(arr =>
+                            arr.AppendRange(
+                                Enumerable
+                                    .Range(0, numRows)
+                                    .Select(_ => GenerateRandomString(random))
+                            )
                         )
-                    )
-            );
+                )
+                .Append(
+                    _testIntegerColumnName,
+                    false,
+                    col =>
+                        col.Int32(arr =>
+                            arr.AppendRange(Enumerable.Range(0, numRows).Select(_ => random.Next()))
+                        )
+                );
             var options = new InsertOptions { SaveMode = SaveMode.Append };
             await table
                 .InsertAsync(
