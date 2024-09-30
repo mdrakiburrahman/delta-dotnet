@@ -16,10 +16,11 @@ namespace DeltaLake.Demo
         private static readonly string _testStringColumnName = "colStringTest";
         private static readonly string _testIntegerColumnName = "colIntegerTest";
         private static readonly string _testPartitionColumnName = "colAuthorIdTest";
-        private static readonly int _numRows = 10;
-        private static readonly int _numWriteLoops = 10;
         private static readonly string[] _storageScopes = new[] { "https://storage.azure.com/.default" };
-        private static readonly int _numConcurrentWriters = 1;
+
+        private static readonly int _numRowsPerWrite = 1;
+        private static readonly int _numWriteLoops = 2;
+        private static readonly int _numConcurrentWriters = 5;
 
         public static async Task Main(string[] args)
         {
@@ -33,16 +34,24 @@ namespace DeltaLake.Demo
                 .Field(static fb => { fb.Name(_testPartitionColumnName); fb.DataType(Int32Type.Default);    fb.Nullable(false); })
                 .Build();
             var runtime = CreateRuntime();
-            var localPath = Path.Combine(_tempDir, _deltaTableTest);
-            var adlsPath = $"{_azureDir}/{_deltaTableTest}";
-            var localStorageOptions = new Dictionary<string, string> { };
-            var adlsStorageOptions = new Dictionary<string, string> {{ "bearer_token", adlsOauthToken }};
 
+            var localPath = Path.Combine(_tempDir, _deltaTableTest);
+            var localStorageOptions = new Dictionary<string, string> { };
             var localTable = await CreateDeltaTableAsync(runtime, localPath, testSchema, localStorageOptions, CancellationToken.None).ConfigureAwait(false);
+
+            var adlsPath = $"{_azureDir}/{_deltaTableTest}";
+            var adlsStorageOptions = new Dictionary<string, string> {{ "bearer_token", adlsOauthToken }};
             var azureTable = await CreateDeltaTableAsync(runtime, adlsPath,  testSchema, adlsStorageOptions,  CancellationToken.None).ConfigureAwait(false);
 
+            // METADATA
+            //
             Console.WriteLine($"Table {localTable.Location()}: {localTable.Version()}");
+            Console.WriteLine($"Local partition columns: {string.Join(", ", localTable.Metadata().PartitionColumns)}");
+            Console.WriteLine($"Local schema: {localTable.Metadata().SchemaString}");
+
             Console.WriteLine($"Table {azureTable.Location()}: {azureTable.Version()}");
+            Console.WriteLine($"Azure partition columns: {string.Join(", ", azureTable.Metadata().PartitionColumns)}");
+            Console.WriteLine($"Azure schema: {azureTable.Metadata().SchemaString}");
 
             // INSERT CONCURRENTLY
             //
@@ -51,15 +60,25 @@ namespace DeltaLake.Demo
             {
                 tasks.Add(Task.Run(async () =>
                 {
+                    int currentThreadId = Thread.CurrentThread.ManagedThreadId;
+
                     for (int l = 0; l < _numWriteLoops; l++)
                     {
+                        var localWriteTask = InsertIntoTableAsync(runtime, localStorageOptions, testSchema, localPath, _numRowsPerWrite, currentThreadId, CancellationToken.None);
+                        var azureWriteTask = InsertIntoTableAsync(runtime, adlsStorageOptions, testSchema, adlsPath, _numRowsPerWrite, currentThreadId, CancellationToken.None);
+
                         try
                         {
-                            await InsertIntoTableAsync(runtime, localStorageOptions, testSchema, localPath, _numRows, i, CancellationToken.None).ConfigureAwait(false);
-                            await InsertIntoTableAsync(runtime, adlsStorageOptions,  testSchema, adlsPath,  _numRows, i, CancellationToken.None).ConfigureAwait(false);
+                            await Task.WhenAll(localWriteTask, azureWriteTask).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
+                            // When concurrent writers try to write to the same
+                            // table, we may get a version mismatch error. The
+                            // write is still committed though, so it's harmless.
+                            //
+                            if (ex.Message.Contains("Generic DeltaTable error: Version mismatch")) continue;
+
                             Console.WriteLine(ex);
                             throw;
                         }
@@ -67,15 +86,6 @@ namespace DeltaLake.Demo
                 }));
             }
             await Task.WhenAll(tasks).ConfigureAwait(false);
-
-            // METADATA
-            //
-            Console.WriteLine($"Local partition columns: {string.Join(", ", localTable.Metadata().PartitionColumns)}");
-            Console.WriteLine($"Local schema: {localTable.Metadata().SchemaString}");
-
-            Console.WriteLine($"Azure partition columns: {string.Join(", ", azureTable.Metadata().PartitionColumns)}");
-            Console.WriteLine($"Azure schema: {azureTable.Metadata().SchemaString}");
-
             runtime.Dispose();
         }
 
@@ -112,7 +122,7 @@ namespace DeltaLake.Demo
         )
         {
             using var table = await DeltaTable.LoadAsync(runtime, System.Text.Encoding.UTF8.GetBytes(location).AsMemory(), new TableOptions() { StorageOptions = storageOptions }, CancellationToken.None);
-            Console.WriteLine($"Table {table.Location()}: {table.Version()}");
+            Console.WriteLine($"Author: {authorId}, Table {table.Location()}: {table.Version()}");
 
             var random = new Random();
             var allocator = new NativeMemoryAllocator();
