@@ -15,6 +15,7 @@
 	<!-- External Nuget Packages -->
 	<ItemGroup>
 		<PackageReference Include="Azure.Identity" Version="1.12.0-beta.1" />
+		<PackageReference Include="Polly" Version="8.4.2" />
 	</ItemGroup>
 
 	<!-- Copy Bridge .dll and .so file to build location -->

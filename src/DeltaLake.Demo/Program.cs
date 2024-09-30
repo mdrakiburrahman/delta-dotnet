@@ -5,6 +5,8 @@ using Azure.Core;
 using Azure.Identity;
 using DeltaLake.Runtime;
 using DeltaLake.Table;
+using Polly;
+using Polly.Retry;
 
 namespace DeltaLake.Demo
 {
@@ -18,9 +20,12 @@ namespace DeltaLake.Demo
         private static readonly string _testPartitionColumnName = "colAuthorIdTest";
         private static readonly string[] _storageScopes = new[] { "https://storage.azure.com/.default" };
 
+        private static readonly string _errorSafeVersionMismatch = "Version mismatch";
+
         private static readonly int _numRowsPerWrite = 1;
         private static readonly int _numWriteLoops = 2;
-        private static readonly int _numConcurrentWriters = 5;
+        private static readonly int _numConcurrentWriters = 25;
+        private static readonly int _numRetriesOnThrow = 10;
 
         public static async Task Main(string[] args)
         {
@@ -55,33 +60,46 @@ namespace DeltaLake.Demo
 
             // INSERT CONCURRENTLY
             //
+            // Since the current delta-dotnet is pointed to this version of delta-rs, we need to retry:
+            //
+            // >>> https://github.com/delta-io/delta-rs/blob/3e6a4d61923602d189f559636b3e3e3f61b6a924/crates/core/src/table/state.rs#L192
+            //
+            // Once we upgrade, change this code, should no longer be required.
+            //
+            AsyncPolicy combinedPolicy = Policy.WrapAsync(
+                Policy
+                    .Handle<Exception>(ex => ex.Message.Contains(_errorSafeVersionMismatch))
+                    .FallbackAsync(
+                        async (ct) =>
+                        {
+                            Console.WriteLine("Version mismatch error encountered is a known error in old version of delta-rs. Skipping retry.");
+                            await Task.CompletedTask.ConfigureAwait(false);
+                        }
+                    ),
+                Policy
+                    .Handle<Exception>(ex => !ex.Message.Contains(_errorSafeVersionMismatch))
+                    .WaitAndRetryAsync(
+                        _numRetriesOnThrow,
+                        retryAttempt => TimeSpan.FromSeconds(retryAttempt),
+                        (exception, timeSpan, retryCount, context) =>
+                        {
+                            Console.WriteLine($"[{Thread.CurrentThread.ManagedThreadId}] Retry {retryCount} encountered an unexpected error: '{exception.Message}'. Waiting {timeSpan} before next retry.");
+                        }
+                    )
+            );
+
             var tasks = new List<Task>();
             for (int i = 0; i < _numConcurrentWriters; i++)
             {
                 tasks.Add(Task.Run(async () =>
                 {
                     int currentThreadId = Thread.CurrentThread.ManagedThreadId;
-
                     for (int l = 0; l < _numWriteLoops; l++)
                     {
-                        var localWriteTask = InsertIntoTableAsync(runtime, localStorageOptions, testSchema, localPath, _numRowsPerWrite, currentThreadId, CancellationToken.None);
-                        var azureWriteTask = InsertIntoTableAsync(runtime, adlsStorageOptions, testSchema, adlsPath, _numRowsPerWrite, currentThreadId, CancellationToken.None);
+                        var localWriteTask = combinedPolicy.ExecuteAsync(() => InsertIntoTableAsync(runtime, localStorageOptions, testSchema, localPath, _numRowsPerWrite, currentThreadId, CancellationToken.None));
+                        var azureWriteTask = combinedPolicy.ExecuteAsync(() => InsertIntoTableAsync(runtime, adlsStorageOptions, testSchema, adlsPath, _numRowsPerWrite, currentThreadId, CancellationToken.None));
 
-                        try
-                        {
-                            await Task.WhenAll(localWriteTask, azureWriteTask).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            // When concurrent writers try to write to the same
-                            // table, we may get a version mismatch error. The
-                            // write is still committed though, so it's harmless.
-                            //
-                            if (ex.Message.Contains("Generic DeltaTable error: Version mismatch")) continue;
-
-                            Console.WriteLine(ex);
-                            throw;
-                        }
+                        await Task.WhenAll(localWriteTask, azureWriteTask).ConfigureAwait(false);
                     }
                 }));
             }
@@ -122,8 +140,6 @@ namespace DeltaLake.Demo
         )
         {
             using var table = await DeltaTable.LoadAsync(runtime, System.Text.Encoding.UTF8.GetBytes(location).AsMemory(), new TableOptions() { StorageOptions = storageOptions }, CancellationToken.None);
-            Console.WriteLine($"Author: {authorId}, Table {table.Location()}: {table.Version()}");
-
             var random = new Random();
             var allocator = new NativeMemoryAllocator();
             var recordBatchBuilder = new RecordBatch.Builder(allocator)
