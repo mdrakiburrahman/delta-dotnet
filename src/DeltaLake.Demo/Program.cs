@@ -20,7 +20,7 @@ namespace DeltaLake.Demo
         private static readonly int _numRows = 10;
         private static readonly int _numWriteLoops = 10;
         private static readonly string[] _storageScopes = new[] { "https://storage.azure.com/.default" };
-        private static readonly int _numConcurrentWriters = 1;
+        private static readonly int _numConcurrentWriters = 2;
 
         public static async Task Main(string[] args)
         {
@@ -54,6 +54,7 @@ namespace DeltaLake.Demo
                         catch (Exception ex)
                         {
                             Console.WriteLine(ex);
+                            throw;
                         }
                     }
                 }));
