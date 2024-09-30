@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
@@ -20,7 +19,7 @@ namespace DeltaLake.Demo
         private static readonly int _numRows = 10;
         private static readonly int _numWriteLoops = 10;
         private static readonly string[] _storageScopes = new[] { "https://storage.azure.com/.default" };
-        private static readonly int _numConcurrentWriters = 2;
+        private static readonly int _numConcurrentWriters = 1;
 
         public static async Task Main(string[] args)
         {
@@ -34,8 +33,13 @@ namespace DeltaLake.Demo
                 .Field(static fb => { fb.Name(_testPartitionColumnName); fb.DataType(Int32Type.Default);    fb.Nullable(false); })
                 .Build();
             var runtime = CreateRuntime();
-            var localTable = await CreateDeltaTableAsync(runtime, Path.Combine(_tempDir, _deltaTableTest), testSchema, CancellationToken.None).ConfigureAwait(false);
-            var azureTable = await CreateDeltaTableAdlsAsync(runtime, $"{_azureDir}/{_deltaTableTest}", adlsOauthToken, testSchema, CancellationToken.None).ConfigureAwait(false);
+            var localPath = Path.Combine(_tempDir, _deltaTableTest);
+            var adlsPath = $"{_azureDir}/{_deltaTableTest}";
+            var localStorageOptions = new Dictionary<string, string> { };
+            var adlsStorageOptions = new Dictionary<string, string> {{ "bearer_token", adlsOauthToken }};
+
+            var localTable = await CreateDeltaTableAsync(runtime, localPath, testSchema, localStorageOptions, CancellationToken.None).ConfigureAwait(false);
+            var azureTable = await CreateDeltaTableAsync(runtime, adlsPath,  testSchema, adlsStorageOptions,  CancellationToken.None).ConfigureAwait(false);
 
             // INSERT CONCURRENTLY
             //
@@ -48,8 +52,8 @@ namespace DeltaLake.Demo
                     {
                         try
                         {
-                            await InsertIntoTableAsync(localTable, testSchema, _numRows, i, CancellationToken.None).ConfigureAwait(false);
-                            await InsertIntoTableAsync(azureTable, testSchema, _numRows, i, CancellationToken.None).ConfigureAwait(false);
+                            await InsertIntoTableAsync(runtime, localStorageOptions, testSchema, localPath, _numRows, i, CancellationToken.None).ConfigureAwait(false);
+                            await InsertIntoTableAsync(runtime, adlsStorageOptions,  testSchema, adlsPath,  _numRows, i, CancellationToken.None).ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -59,7 +63,7 @@ namespace DeltaLake.Demo
                     }
                 }));
             }
-            await Task.WhenAll(tasks);
+            await Task.WhenAll(tasks).ConfigureAwait(false);
 
             // METADATA
             //
@@ -78,6 +82,7 @@ namespace DeltaLake.Demo
             DeltaRuntime runtime,
             string path,
             Schema schema,
+            Dictionary<string, string> storageOptions,
             CancellationToken cancellationToken
         ) =>
             await DeltaTable
@@ -87,42 +92,24 @@ namespace DeltaLake.Demo
                     {
                         Configuration = new Dictionary<string, string?>(),
                         PartitionBy = new[] { _testPartitionColumnName },
-                    },
-                    cancellationToken
-                )
-                .ConfigureAwait(false);
-
-        private static async Task<DeltaTable> CreateDeltaTableAdlsAsync(
-            DeltaRuntime runtime,
-            string path,
-            string bearerToken,
-            Schema schema,
-            CancellationToken cancellationToken
-        ) =>
-            await DeltaTable
-                .CreateAsync(
-                    runtime,
-                    new TableCreateOptions(path, schema)
-                    {
-                        Configuration = new Dictionary<string, string?>(),
-                        PartitionBy = new[] { _testPartitionColumnName },
-                        StorageOptions = new Dictionary<string, string?>
-                        {
-                            { "bearer_token", bearerToken },
-                        },
+                        StorageOptions = storageOptions,
                     },
                     cancellationToken
                 )
                 .ConfigureAwait(false);
 
         private static async Task InsertIntoTableAsync(
-            DeltaTable table,
+            DeltaRuntime runtime,
+            Dictionary<string, string> storageOptions,
             Schema schema,
+            string location,
             int numRows,
             int authorId,
             CancellationToken cancellationToken
         )
         {
+            using var table = await DeltaTable.LoadAsync(runtime, System.Text.Encoding.UTF8.GetBytes(location).AsMemory(), new TableOptions() { StorageOptions = storageOptions }, CancellationToken.None);
+
             var random = new Random();
             var allocator = new NativeMemoryAllocator();
             var recordBatchBuilder = new RecordBatch.Builder(allocator)

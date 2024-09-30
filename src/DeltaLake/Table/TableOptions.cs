@@ -15,7 +15,7 @@ namespace DeltaLake.Table
         /// <summary>
         /// A map of string options
         /// </summary>
-        public Dictionary<string, string> StorageOptions { get; } = new Dictionary<string, string>();
+        public Dictionary<string, string> StorageOptions { get; set; } = new Dictionary<string, string>();
 
         /// <summary>
         /// Whether or not to load files when building the table
