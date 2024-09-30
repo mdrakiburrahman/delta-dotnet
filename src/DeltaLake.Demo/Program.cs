@@ -41,6 +41,9 @@ namespace DeltaLake.Demo
             var localTable = await CreateDeltaTableAsync(runtime, localPath, testSchema, localStorageOptions, CancellationToken.None).ConfigureAwait(false);
             var azureTable = await CreateDeltaTableAsync(runtime, adlsPath,  testSchema, adlsStorageOptions,  CancellationToken.None).ConfigureAwait(false);
 
+            Console.WriteLine($"Table {localTable.Location()}: {localTable.Version()}");
+            Console.WriteLine($"Table {azureTable.Location()}: {azureTable.Version()}");
+
             // INSERT CONCURRENTLY
             //
             var tasks = new List<Task>();
@@ -109,6 +112,7 @@ namespace DeltaLake.Demo
         )
         {
             using var table = await DeltaTable.LoadAsync(runtime, System.Text.Encoding.UTF8.GetBytes(location).AsMemory(), new TableOptions() { StorageOptions = storageOptions }, CancellationToken.None);
+            Console.WriteLine($"Table {table.Location()}: {table.Version()}");
 
             var random = new Random();
             var allocator = new NativeMemoryAllocator();
