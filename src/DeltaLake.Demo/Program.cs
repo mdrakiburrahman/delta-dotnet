@@ -18,6 +18,7 @@ namespace DeltaLake.Demo
         private static readonly string _testIntegerColumnName = "colIntegerTest";
         private static readonly string _testPartitionColumnName = "colAuthorIdTest";
         private static readonly int _numRows = 10;
+        private static readonly int _numWriteLoops = 10;
         private static readonly string[] _storageScopes = new[] { "https://storage.azure.com/.default" };
         private static readonly int _numConcurrentWriters = 1;
 
@@ -43,8 +44,18 @@ namespace DeltaLake.Demo
             {
                 tasks.Add(Task.Run(async () =>
                 {
-                    await InsertIntoTableAsync(localTable, testSchema, _numRows, i, CancellationToken.None).ConfigureAwait(false);
-                    await InsertIntoTableAsync(azureTable, testSchema, _numRows, i, CancellationToken.None).ConfigureAwait(false);
+                    for (int l = 0; l < _numWriteLoops; l++)
+                    {
+                        try
+                        {
+                            await InsertIntoTableAsync(localTable, testSchema, _numRows, i, CancellationToken.None).ConfigureAwait(false);
+                            await InsertIntoTableAsync(azureTable, testSchema, _numRows, i, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex);
+                        }
+                    }
                 }));
             }
             await Task.WhenAll(tasks);
