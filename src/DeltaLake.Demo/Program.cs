@@ -10,10 +10,7 @@ namespace DeltaLake.Demo
 {
     public class Program
     {
-        private static readonly string _tempDir = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            ".temp"
-        );
+        private static readonly string _tempDir = Path.Combine(Directory.GetCurrentDirectory(), ".temp");
         private static readonly string _azureDir = "abfss://onelake@monitoringtestadls.dfs.core.windows.net/synapse/workspaces/monitoring-test-synapse/temp";
         private static readonly string _deltaTableTest = "demo-table";
         private static readonly string _testStringColumnName = "colStringTest";
@@ -23,55 +20,32 @@ namespace DeltaLake.Demo
 
         public static async Task Main(string[] args)
         {
-            if (Directory.Exists(_tempDir))
-                Directory.Delete(_tempDir, true);
+            if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true);
             _ = Directory.CreateDirectory(_tempDir);
 
-            var adlsOauthToken = (
-                await new VisualStudioCredential().GetTokenAsync(
-                    new TokenRequestContext(_storageScopes),
-                    default
-                ).ConfigureAwait(false)
-            ).Token;
+            var adlsOauthToken = (await new VisualStudioCredential().GetTokenAsync(new TokenRequestContext(_storageScopes), default).ConfigureAwait(false)).Token;
 
             var testSchema = new Apache.Arrow.Schema.Builder()
-                .Field(static fb =>
-                {
-                    fb.Name(_testStringColumnName);
-                    fb.DataType(StringType.Default);
-                    fb.Nullable(false);
-                })
-                .Field(static fb =>
-                {
-                    fb.Name(_testIntegerColumnName);
-                    fb.DataType(Int32Type.Default);
-                    fb.Nullable(false);
-                })
+                .Field(static fb => { fb.Name(_testStringColumnName); fb.DataType(StringType.Default); fb.Nullable(false);})
+                .Field(static fb => { fb.Name(_testIntegerColumnName); fb.DataType(Int32Type.Default); fb.Nullable(false);})
                 .Build();
 
             var runtime = CreateRuntime();
-            var localTable = await CreateDeltaTableAsync(
-                    runtime,
-                    Path.Combine(_tempDir, _deltaTableTest),
-                    testSchema,
-                    CancellationToken.None
-                )
-                .ConfigureAwait(false);
-            var azureTable = await CreateDeltaTableAdlsAsync(
-                    runtime,
-                    $"{_azureDir}/{_deltaTableTest}",
-                    adlsOauthToken,
-                    testSchema,
-                    CancellationToken.None
-                )
-                .ConfigureAwait(false);
+            var localTable = await CreateDeltaTableAsync(runtime, Path.Combine(_tempDir, _deltaTableTest), testSchema, CancellationToken.None).ConfigureAwait(false);
+            var azureTable = await CreateDeltaTableAdlsAsync(runtime, $"{_azureDir}/{_deltaTableTest}", adlsOauthToken, testSchema, CancellationToken.None).ConfigureAwait(false);
 
             // INSERT
             //
-            await InsertIntoTableAsync(localTable, testSchema, _numRows, CancellationToken.None)
-                .ConfigureAwait(false);
-            await InsertIntoTableAsync(azureTable, testSchema, _numRows, CancellationToken.None)
-                .ConfigureAwait(false);
+            await InsertIntoTableAsync(localTable, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
+            await InsertIntoTableAsync(azureTable, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
+
+            // METADATA
+            //
+            Console.WriteLine($"Local partition columns: {string.Join(", ", localTable.Metadata().PartitionColumns)}");
+            Console.WriteLine($"Local schema: {localTable.Metadata().SchemaString}");
+
+            Console.WriteLine($"Azure partition columns: {string.Join(", ", azureTable.Metadata().PartitionColumns)}");
+            Console.WriteLine($"Azure schema: {azureTable.Metadata().SchemaString}");
 
             runtime.Dispose();
         }
