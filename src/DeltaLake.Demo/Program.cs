@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
@@ -15,6 +16,7 @@ namespace DeltaLake.Demo
         private static readonly string _deltaTableTest = "demo-table";
         private static readonly string _testStringColumnName = "colStringTest";
         private static readonly string _testIntegerColumnName = "colIntegerTest";
+        private static readonly string _testPartitionColumnName = "colAuthorIdTest";
         private static readonly int _numRows = 10;
         private static readonly string[] _storageScopes = new[] { "https://storage.azure.com/.default" };
 
@@ -24,20 +26,19 @@ namespace DeltaLake.Demo
             _ = Directory.CreateDirectory(_tempDir);
 
             var adlsOauthToken = (await new VisualStudioCredential().GetTokenAsync(new TokenRequestContext(_storageScopes), default).ConfigureAwait(false)).Token;
-
             var testSchema = new Apache.Arrow.Schema.Builder()
-                .Field(static fb => { fb.Name(_testStringColumnName); fb.DataType(StringType.Default); fb.Nullable(false);})
-                .Field(static fb => { fb.Name(_testIntegerColumnName); fb.DataType(Int32Type.Default); fb.Nullable(false);})
+                .Field(static fb => { fb.Name(_testStringColumnName);    fb.DataType(StringType.Default);   fb.Nullable(false); })
+                .Field(static fb => { fb.Name(_testIntegerColumnName);   fb.DataType(Int32Type.Default);    fb.Nullable(false); })
+                .Field(static fb => { fb.Name(_testPartitionColumnName); fb.DataType(Int32Type.Default);    fb.Nullable(false); })
                 .Build();
-
             var runtime = CreateRuntime();
             var localTable = await CreateDeltaTableAsync(runtime, Path.Combine(_tempDir, _deltaTableTest), testSchema, CancellationToken.None).ConfigureAwait(false);
             var azureTable = await CreateDeltaTableAdlsAsync(runtime, $"{_azureDir}/{_deltaTableTest}", adlsOauthToken, testSchema, CancellationToken.None).ConfigureAwait(false);
 
             // INSERT
             //
-            await InsertIntoTableAsync(localTable, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
-            await InsertIntoTableAsync(azureTable, testSchema, _numRows, CancellationToken.None).ConfigureAwait(false);
+            await InsertIntoTableAsync(localTable, testSchema, _numRows, 1, CancellationToken.None).ConfigureAwait(false);
+            await InsertIntoTableAsync(azureTable, testSchema, _numRows, 1, CancellationToken.None).ConfigureAwait(false);
 
             // METADATA
             //
@@ -64,6 +65,7 @@ namespace DeltaLake.Demo
                     new TableCreateOptions(path, schema)
                     {
                         Configuration = new Dictionary<string, string?>(),
+                        PartitionBy = new[] { _testPartitionColumnName },
                     },
                     cancellationToken
                 )
@@ -82,6 +84,7 @@ namespace DeltaLake.Demo
                     new TableCreateOptions(path, schema)
                     {
                         Configuration = new Dictionary<string, string?>(),
+                        PartitionBy = new[] { _testPartitionColumnName },
                         StorageOptions = new Dictionary<string, string?>
                         {
                             { "bearer_token", bearerToken },
@@ -95,6 +98,7 @@ namespace DeltaLake.Demo
             DeltaTable table,
             Schema schema,
             int numRows,
+            int authorId,
             CancellationToken cancellationToken
         )
         {
@@ -119,6 +123,14 @@ namespace DeltaLake.Demo
                     col =>
                         col.Int32(arr =>
                             arr.AppendRange(Enumerable.Range(0, numRows).Select(_ => random.Next()))
+                        )
+                )
+                .Append(
+                    _testPartitionColumnName,
+                    false,
+                    col =>
+                        col.Int32(arr =>
+                            arr.AppendRange(Enumerable.Range(0, numRows).Select(_ => authorId))
                         )
                 );
             var options = new InsertOptions { SaveMode = SaveMode.Append };
