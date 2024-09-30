@@ -19,6 +19,7 @@ namespace DeltaLake.Demo
         private static readonly string _testPartitionColumnName = "colAuthorIdTest";
         private static readonly int _numRows = 10;
         private static readonly string[] _storageScopes = new[] { "https://storage.azure.com/.default" };
+        private static readonly int _numConcurrentWriters = 1;
 
         public static async Task Main(string[] args)
         {
@@ -35,10 +36,18 @@ namespace DeltaLake.Demo
             var localTable = await CreateDeltaTableAsync(runtime, Path.Combine(_tempDir, _deltaTableTest), testSchema, CancellationToken.None).ConfigureAwait(false);
             var azureTable = await CreateDeltaTableAdlsAsync(runtime, $"{_azureDir}/{_deltaTableTest}", adlsOauthToken, testSchema, CancellationToken.None).ConfigureAwait(false);
 
-            // INSERT
+            // INSERT CONCURRENTLY
             //
-            await InsertIntoTableAsync(localTable, testSchema, _numRows, 1, CancellationToken.None).ConfigureAwait(false);
-            await InsertIntoTableAsync(azureTable, testSchema, _numRows, 1, CancellationToken.None).ConfigureAwait(false);
+            var tasks = new List<Task>();
+            for (int i = 0; i < _numConcurrentWriters; i++)
+            {
+                tasks.Add(Task.Run(async () =>
+                {
+                    await InsertIntoTableAsync(localTable, testSchema, _numRows, i, CancellationToken.None).ConfigureAwait(false);
+                    await InsertIntoTableAsync(azureTable, testSchema, _numRows, i, CancellationToken.None).ConfigureAwait(false);
+                }));
+            }
+            await Task.WhenAll(tasks);
 
             // METADATA
             //
