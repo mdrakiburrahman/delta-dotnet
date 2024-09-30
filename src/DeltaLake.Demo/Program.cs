@@ -14,12 +14,12 @@ namespace DeltaLake.Demo
             Directory.GetCurrentDirectory(),
             ".temp"
         );
-        private static readonly string _azureDir =
-            "abfss://onelake@monitoringtestadls.dfs.core.windows.net/synapse/workspaces/monitoring-test-synapse/temp/myDeltaTable";
-        private static readonly string _deltaTableTest = "myDeltaTable";
+        private static readonly string _azureDir = "abfss://onelake@monitoringtestadls.dfs.core.windows.net/synapse/workspaces/monitoring-test-synapse/temp";
+        private static readonly string _deltaTableTest = "demo-table";
         private static readonly string _testStringColumnName = "colStringTest";
         private static readonly string _testIntegerColumnName = "colIntegerTest";
         private static readonly int _numRows = 10;
+        private static readonly string[] _storageScopes = new[] { "https://storage.azure.com/.default" };
 
         public static async Task Main(string[] args)
         {
@@ -27,12 +27,12 @@ namespace DeltaLake.Demo
                 Directory.Delete(_tempDir, true);
             _ = Directory.CreateDirectory(_tempDir);
 
-            var adlsOauthToken = new VisualStudioCredential()
-                .GetToken(
-                    new TokenRequestContext(new[] { "https://storage.azure.com/.default" }),
+            var adlsOauthToken = (
+                await new VisualStudioCredential().GetTokenAsync(
+                    new TokenRequestContext(_storageScopes),
                     default
-                )
-                .Token;
+                ).ConfigureAwait(false)
+            ).Token;
 
             var testSchema = new Apache.Arrow.Schema.Builder()
                 .Field(static fb =>
@@ -59,7 +59,7 @@ namespace DeltaLake.Demo
                 .ConfigureAwait(false);
             var azureTable = await CreateDeltaTableAdlsAsync(
                     runtime,
-                    _azureDir,
+                    $"{_azureDir}/{_deltaTableTest}",
                     adlsOauthToken,
                     testSchema,
                     CancellationToken.None
